@@ -43,6 +43,7 @@ def parse_chat_file(file_content, employee_name, selected_month):
     date_pattern = re.compile(r'^\[?(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})')
     
     attendance_tracker = {}
+    all_dates = set()
     current_month = None
     current_date_str = None
     is_in_section = False 
@@ -65,6 +66,9 @@ def parse_chat_file(file_content, employee_name, selected_month):
             
         if re.search(r'-{2,}\s*IN\s*-{2,}', line, re.IGNORECASE):
             is_in_section = True
+            if current_date_str:
+                if selected_month == "All Months" or current_month == MONTHS.get(selected_month):
+                    all_dates.add(current_date_str)
             continue
         if re.search(r'-{2,}\s*OUT\s*-{2,}', line, re.IGNORECASE):
             is_in_section = False
@@ -100,14 +104,15 @@ def parse_chat_file(file_content, employee_name, selected_month):
                             
     total_present = len(attendance_tracker)
     days_late = sum(1 for late_status in attendance_tracker.values() if late_status)
+    days_absent = len(all_dates) - total_present
     
-    return total_present, days_late
+    return total_present, days_late, days_absent
 
 # --- 3. PDF GENERATOR ---
 def generate_pdf(employee_name, selected_month, 
                  basic_salary, transport, konsumsi, edu_support, family_support, pic_student, thr, 
                  honor_kepanitiaan, uang_lembur, bonus_murid, reimbursement,
-                 days_late, late_deduction, delay_jobdesc, denda_lapker, potongan_izin, bpjs,
+                 penalty_days, late_deduction, delay_jobdesc, denda_lapker, potongan_izin, bpjs,
                  total_earnings, total_deductions, take_home_pay):
     
     buffer = BytesIO()
@@ -158,7 +163,7 @@ def generate_pdf(employee_name, selected_month,
     # DEDUCTIONS
     deductions_idx = len(table_data)
     table_data.append(["POTONGAN (DEDUCTIONS)", ""])
-    table_data.append([f"Get a Fine, late ({days_late} days)", f"- Rp {late_deduction:,.0f}"])
+    table_data.append([f"Late / Absent Fine ({penalty_days} days)", f"- Rp {late_deduction:,.0f}"])
     
     if delay_jobdesc > 0: table_data.append(["Get a fine, delay jobdesc", f"- Rp {delay_jobdesc:,.0f}"])
     if denda_lapker > 0: table_data.append(["Denda LAPKER", f"- Rp {denda_lapker:,.0f}"])
@@ -228,52 +233,50 @@ def generate_pdf(employee_name, selected_month,
 def main():
     st.set_page_config(page_title="TC Wika Payroll", page_icon="🏠", layout="centered")
     
-    # Inject Airbnb CSS Theme
+    # Inject Dark Mode Theme
     st.markdown("""
         <style>
-        /* Clean White Background & Airbnb Font Style */
-        .stApp {
-            background-color: #FFFFFF;
-            color: #222222;
+        /* Dark Font Style */
+        .stApp, .stApp > header {
             font-family: 'Circular', -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, sans-serif;
         }
         
         /* Soft, Bold Headers */
         h1, h2, h3 {
-            color: #222222 !important;
+            color: #FAFAFA !important;
             font-weight: 800 !important;
             letter-spacing: -0.02em;
         }
 
         /* The 'Price Breakdown' Metric Cards */
         [data-testid="stMetric"] {
-            background-color: #FFFFFF;
-            border: 1px solid #DDDDDD;
+            background-color: #1E1E24;
+            border: 1px solid #333333;
             border-radius: 12px;
             padding: 16px;
-            box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.04);
+            box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
         }
         
-        /* Metric Values (Dark and Readable) */
+        /* Metric Values (Light and Readable) */
         [data-testid="stMetricValue"] {
-            color: #222222 !important;
+            color: #FAFAFA !important;
             font-weight: 600;
         }
 
         /* Friendly, Soft File Uploader */
         [data-testid="stFileUploader"] {
-            border: 1px dashed #B0B0B0;
+            border: 1px dashed #555555;
             border-radius: 12px;
             padding: 20px;
-            background-color: #F7F7F7;
+            background-color: #1E1E24;
             transition: all 0.2s ease;
         }
         [data-testid="stFileUploader"]:hover {
-            border-color: #222222;
-            background-color: #FFFFFF;
+            border-color: #FAFAFA;
+            background-color: #2A2A35;
         }
 
-        /* The Signature Airbnb 'Reserve' Button */
+        /* The Signature 'Reserve' Button */
         .stButton>button {
             background-color: #FF5A5F;
             color: white;
@@ -290,21 +293,14 @@ def main():
         .stButton>button:hover {
             background-color: #E0484D;
             color: white;
-            box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15);
+            box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
             transform: translateY(-1px);
         }
 
-        /* Input Fields with Soft Borders */
-        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>div {
-            border-radius: 8px;
-            border: 1px solid #B0B0B0;
-            color: #222222;
-            background-color: #FFFFFF;
-        }
         
         /* Subtle Dividers */
         hr {
-            border-top: 1px solid #DDDDDD;
+            border-top: 1px solid #333333 !important;
             margin-top: 2rem;
             margin-bottom: 2rem;
         }
@@ -313,7 +309,7 @@ def main():
     
     # Header
     st.title("🏠 TC Wika Payroll")
-    st.markdown("<p style='font-size: 18px; color: #717171;'>Generate beautiful, accurate payslips in seconds.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 18px; color: #A0A0A0;'>Generate beautiful, accurate payslips in seconds.</p>", unsafe_allow_html=True)
     
     st.divider()
     
@@ -336,14 +332,15 @@ def main():
     uploaded_file = st.file_uploader("Drop your WhatsApp Chat Export (.txt) here", type=["txt"])
     
     days_late = 0
+    days_absent = 0
     total_present = 0
     
     if uploaded_file is not None:
         file_content = uploaded_file.read()
-        total_present, days_late = parse_chat_file(file_content, selected_employee, selected_month)
+        total_present, days_late, days_absent = parse_chat_file(file_content, selected_employee, selected_month)
         
         period_text = f"in **{selected_month}**" if selected_month != "All Months" else "overall"
-        st.success(f"Log scanned! **{selected_employee}** was present **{total_present}** times and late **{days_late}** times {period_text}.")
+        st.success(f"Log scanned! **{selected_employee}** was present **{total_present}** times, late **{days_late}** times, and absent **{days_absent}** times {period_text}.")
         
     st.divider()
     
@@ -354,7 +351,7 @@ def main():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("<p style='font-weight:bold; color:#27AE60;'>Penerimaan (Earnings)</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-weight:bold; color:#2ECC71;'>Penerimaan (Earnings)</p>", unsafe_allow_html=True)
         basic_salary = st.number_input("Gaji Pokok", min_value=0, value=profile["salary"], step=100000)
         transport = st.number_input("Transport", min_value=0, value=profile["transport"], step=50000)
         konsumsi = st.number_input("Konsumsi", min_value=0, value=profile["konsumsi"], step=50000)
@@ -370,9 +367,10 @@ def main():
             reimbursement = st.number_input("Reimbursement", min_value=0, value=0, step=50000)
         
     with col2:
-        st.markdown("<p style='font-weight:bold; color:#E74C3C;'>Potongan (Deductions)</p>", unsafe_allow_html=True)
-        late_deduction = days_late * 50000
-        st.metric(label="Late Fine", value=f"- Rp {late_deduction:,.0f}", delta=f"{days_late} late days", delta_color="inverse")
+        st.markdown("<p style='font-weight:bold; color:#FF6B6B;'>Potongan (Deductions)</p>", unsafe_allow_html=True)
+        penalty_days = days_late + days_absent
+        late_deduction = penalty_days * 50000
+        st.metric(label="Late & Absent Fine", value=f"- Rp {late_deduction:,.0f}", delta=f"{penalty_days} penalty days", delta_color="inverse")
         
         bpjs = st.number_input("BPJS", min_value=0, value=150000, step=10000)
         
@@ -396,7 +394,7 @@ def main():
     pdf_data = generate_pdf(
         selected_employee, selected_month, basic_salary, transport, konsumsi, edu_support, family_support, pic_student, thr, 
         honor_kepanitiaan, uang_lembur, bonus_murid, reimbursement,
-        days_late, late_deduction, delay_jobdesc, denda_lapker, potongan_izin, bpjs,
+        penalty_days, late_deduction, delay_jobdesc, denda_lapker, potongan_izin, bpjs,
         total_earnings, total_deductions, take_home_pay
     )
     
